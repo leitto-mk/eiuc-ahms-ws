@@ -1,42 +1,50 @@
+require('dotenv').config();
+
 const { createClient } = require('redis');
 const WebSocket = require('ws');
+const logger = require('./logger');
 
-const server = new WebSocket.Server({ port: 8001 });
+const server = new WebSocket.Server({ port: process.env.WS_PORT });
 const redis = createClient();
 
-//Add Channels here
 const CHANNELS = [
-    'eiuc-notification',
+    'eiuc-notification', 
+    'eiuc-action'
 ];
 
-redis.connect().then(async () => {
-    console.log('Redis connected');
+redis.connect().then(() => {
+    logger.info('Redis connected');
 
-    // Create a dedicated subscriber connection
     const subscriber = redis.duplicate();
-    await subscriber.connect();
+    subscriber.connect();
 
-    // Subscribe to each channel
     for (const channel of CHANNELS) {
-        await subscriber.subscribe(channel, (data) => {
-            console.log(`Received from Redis [${channel}]: ${data}`);
+        subscriber.subscribe(channel, (data) => {
+            logger.info(`Received from Redis [${channel}]: ${data}`);
 
-            // Forward the message to all WebSocket clients
             server.clients.forEach(client => {
                 if (client.readyState === WebSocket.OPEN) {
                     client.send(JSON.stringify({
                         channel: channel,
-                        contents: JSON.parse(data)
+                        data: JSON.parse(data)
                     }));
+                } else if (client.readyState === WebSocket.CLOSED || client.readyState === WebSocket.CLOSING) {
+                    logger.warn('Client is closed, skipping send');
+                } else {
+                    logger.warn('Client is in an unknown state, skipping send');
                 }
             });
         });
     }
+}).catch(err => {
+    logger.error(`Redis connection failed: ${err.message}`);
 });
 
-server.on('connection', ws => {
-    console.log('WebSocket client connected');
+server.on('connection', (ws, request) => {
+    const origin = `${request.socket.remoteAddress} -- ${request.headers['user-agent']}`
+    logger.info(`Client connected from: ${origin}`);
+
     ws.on('close', () => {
-        console.log('WebSocket client disconnected');
+        logger.info('Client disconnected');
     });
 });

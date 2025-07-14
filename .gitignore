@@ -4,3 +4,5 @@
 .pnp.js
 /.idea
 /.env
+logs/error.log
+logs/server.log
