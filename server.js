@@ -1,5 +1,6 @@
 require('dotenv').config();
 
+const { v4: uuidv4 } = require('uuid');
 const { createClient } = require('redis');
 const WebSocket = require('ws');
 const logger = require('./logger');
@@ -22,17 +23,21 @@ redis.connect().then(() => {
         subscriber.subscribe(channel, (data) => {
             logger.info(`Received from Redis [${channel}]: ${data}`);
 
-            server.clients.forEach(client => {
+            let index = 1;
+            server.clients.forEach((client) => {
                 if (client.readyState === WebSocket.OPEN) {
                     client.send(JSON.stringify({
                         channel: channel,
                         data: JSON.parse(data)
                     }));
+                    logger.info(`Client ${index} [${client._meta.id}] message sent ✅`)
                 } else if (client.readyState === WebSocket.CLOSED || client.readyState === WebSocket.CLOSING) {
-                    logger.warn('Client is closed, skipping send');
+                    logger.warn(`Client ${index} [${client._meta.id}] is closed, skipping send ❌`);
                 } else {
-                    logger.warn('Client is in an unknown state, skipping send');
+                    logger.warn(`Client ${index} [${client._meta.id}] is in an unknown state, skipping send ❌`);
                 }
+
+                index++
             });
         });
     }
@@ -41,10 +46,22 @@ redis.connect().then(() => {
 });
 
 server.on('connection', (ws, request) => {
+    const id = uuidv4().replace(/-/g, '').slice(0, 5);
+    const ip = request.socket.remoteAddress;
+    const userAgent = request.headers['user-agent'] || 'Unknown User Agent';
+    const established = new Date().toISOString();
+
+    ws._meta = {
+        id,
+        ip,
+        userAgent,
+        established
+    };
+
     const origin = `${request.socket.remoteAddress} -- ${request.headers['user-agent']}`
-    logger.info(`Client connected from: ${origin}`);
+    logger.info(`Client [${ws._meta.id}] connected from: ${origin}`);
 
     ws.on('close', () => {
-        logger.info('Client disconnected');
+        logger.info(`Client [${ws._meta.id}] disconnected`);
     });
 });
